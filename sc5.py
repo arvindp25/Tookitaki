@@ -34,21 +34,6 @@ def _submit_spark_job(**context):
     run_idempotent_ingestion(spark, staging_path, curated_path, batch_date)
 
 
-def _generate_recon_metrics(**context):
-    batch_date = context["ds"]
-    spark = SparkSession.builder.appName("Reconciliation").getOrCreate()
-
-    raw_count     = spark.read.parquet(f"s3://staging/customer/batch_date={batch_date}").count()
-    curated_count = spark.read.parquet("s3://curated/customer/").count()
-
-    print(f"[Recon] Raw records   : {raw_count}")
-    print(f"[Recon] Curated total : {curated_count}")
-
-    spark.createDataFrame(
-        [(batch_date, raw_count, curated_count)],
-        ["batch_date", "raw_count", "curated_count"],
-    ).write.mode("append").parquet("s3://metrics/customer_recon/")
-
 
 if _AIRFLOW_AVAILABLE:
     with DAG(
@@ -83,11 +68,6 @@ if _AIRFLOW_AVAILABLE:
             python_callable = _submit_spark_job,
         )
 
-        recon = PythonOperator(
-            task_id         = "generate_recon_metrics",
-            python_callable = _generate_recon_metrics,
-            retries         = 2,
-        )
 
         notify_success = SlackAPIPostOperator(
             task_id      = "notify_success",
@@ -103,4 +83,4 @@ if _AIRFLOW_AVAILABLE:
             trigger_rule = "one_failed",
         )
 
-        detect_file >> validate >> ingest >> recon >> [notify_success, notify_failure]
+        detect_file >> validate >> ingest >> [notify_success, notify_failure]
